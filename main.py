@@ -66,7 +66,7 @@ def noisy_hist(x, epsilon, bins):
         xbin = int(np.floor(coord[0] / scale_factor))
         ybin = int(np.floor(coord[1] / scale_factor))
         values[xbin, ybin] += 1
-    return values + np.random.laplace(scale=1 / (epsilon * N), size=[bins, bins])
+    return values + np.random.laplace(scale=2 / (epsilon * N), size=[bins, bins])
 
 
 def create_windowed_release_mechanism(x):
