@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 import numpy as np
+
 import matplotlib.pyplot as plt
+
 plt.style.use('seaborn-pastel')
 
 # Global Parameters
 SPACE_SIZE = 128
 N = 2**10
+HIST_EPSILON = 0.01
+WINDOW_EPSILON = 0.01
 SPATIAL_STD = 0.3
 QUERY_WINDOW_SIZE = 4
 MIN_RELEASE_SIZE = 3
@@ -31,7 +35,7 @@ def create_multigranular_mechanism(x, epsilon=0.01):
                 break
 
 
-def create_simple_hist_mechanism(x, epsilon=0.01):
+def create_simple_hist_mechanism(x):
     """
     Returns a mechanism based off a simple noisy 2D histogram
 
@@ -40,20 +44,19 @@ def create_simple_hist_mechanism(x, epsilon=0.01):
     Outputs
         func: query mechanism that returns a count for that bin
     """
-    values = noisy_hist(x, epsilon, bins=HIST_BINS)  # compute histogram
+    values = noisy_hist(x, bins=HIST_BINS)  # compute histogram
     values = np.clip(values, a_min=0, a_max=None)  # clip values below 0 because of noise
     mask = (values >= MIN_RELEASE_SIZE).astype(int)  # mask out values below threshold release
     values = np.multiply(values, mask)
     return lambda query: release_bin(query, values), values
 
 
-def noisy_hist(x, epsilon, bins):
+def noisy_hist(x, bins):
     """
     Helper function that bins data and introduces Laplace noise
 
     Inputs
         x: dataset
-        epsilon: noise factor
         bins: choose number of bins separate from global param
     Outputs
         2D array of bins with noisy counts
@@ -66,7 +69,7 @@ def noisy_hist(x, epsilon, bins):
         xbin = int(np.floor(coord[0] / scale_factor))
         ybin = int(np.floor(coord[1] / scale_factor))
         values[xbin, ybin] += 1
-    return values + np.random.laplace(scale=2 / (epsilon * N), size=[bins, bins])
+    return values + np.random.laplace(scale=2 / (HIST_EPSILON * N), size=[bins, bins])
 
 
 def create_windowed_release_mechanism(x):
@@ -74,20 +77,19 @@ def create_windowed_release_mechanism(x):
     return lambda query: release_window(query, x)
 
 
-def create_noisy_windowed_release_mechanism(x, epsilon=0.01):
+def create_noisy_windowed_release_mechanism(x):
     """
     Creates private query function
 
     Inputs
         x: unmodified dataset
-        epsilon: privacy parameter
     Outputs
         func: releases counts of noisy data
     """
     # calculate laplace noise for each column
     #   sensitivity scales with window size
-    spatial_noise_x = np.random.laplace(scale=QUERY_WINDOW_SIZE / (N * epsilon), size=N)
-    spatial_noise_y = np.random.laplace(scale=QUERY_WINDOW_SIZE / (N * epsilon), size=N)
+    spatial_noise_x = np.random.laplace(scale=QUERY_WINDOW_SIZE / (N * WINDOW_EPSILON), size=N)
+    spatial_noise_y = np.random.laplace(scale=QUERY_WINDOW_SIZE / (N * WINDOW_EPSILON), size=N)
 
     noisy_data = x.copy()
     noisy_data[:, 0] += spatial_noise_x
@@ -292,12 +294,17 @@ def test_accuracy(mechanism, true_val_func, num_queries=1000):
     return error / count
 
 
-def main():
+def main(visualize=True):
+    global noisy_release_mechanism, normal_release_mechanism, simple_hist_release_mechanism, baseline_bins
+
+    print("N = {}, window epsilon = {}, histogram epsilon = {}".format(N, WINDOW_EPSILON, HIST_EPSILON))
+
     X = generate_data2()  # Create dataset
 
     # visualize ground truth
     visualize_datapoints(X, "Baseline Data")
     baseline_bins = visualize_data_density_map(X, "Baseline Data")
+    plt.close()
     normal_release_mechanism = create_windowed_release_mechanism(X)
 
     # visualize noisy dataset
@@ -331,8 +338,50 @@ def main():
                                         lambda query: release_bin(query, baseline_bins))
     print("Noisy simple histogram average error:", simple_hist_avg_err)
 
+    if not visualize:
+        plt.close('all')
+        return noisy_data_avg_err, simple_hist_avg_err
+    else:
+        plt.show()
+
+
+def run_scale_test():
+    global N, HIST_EPSILON, WINDOW_EPSILON
+    accuracies_simple = []
+    accuracies_hist = []
+    ns = [10, 11, 12, 13, 14, 15, 16]
+    for n in ns:
+        N = 2**n
+        noisy_data_avg_err, simple_hist_avg_err = main(visualize=False)
+        accuracies_simple.append(noisy_data_avg_err)
+        accuracies_hist.append(simple_hist_avg_err)
+
+    plt.plot(ns, accuracies_simple)
+    plt.plot(ns, accuracies_hist)
+    plt.legend(["Noisy Data", "Noisy Histogram"])
+    plt.xlabel("N (log scale)")
+    plt.ylabel("Average Error")
+    plt.show()
+
+    N = 2**10
+
+    accuracies_simple = []
+    accuracies_hist = []
+    epsilons = [0, -0.5, -1, -1.5,  -2, -2.5, -3]
+    for epsilon in epsilons:
+        HIST_EPSILON = WINDOW_EPSILON = 10**epsilon
+        noisy_data_avg_err, simple_hist_avg_err = main(visualize=False)
+        accuracies_simple.append(noisy_data_avg_err)
+        accuracies_hist.append(simple_hist_avg_err)
+
+    plt.plot(epsilons, accuracies_simple)
+    plt.plot(epsilons, accuracies_hist)
+    plt.legend(["Noisy Data", "Noisy Histogram"])
+    plt.xlabel("epsilon (log scale)")
+    plt.ylabel("Average Error")
     plt.show()
 
 
 if __name__ == '__main__':
     main()
+    run_scale_test()
